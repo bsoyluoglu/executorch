@@ -1,0 +1,51 @@
+name: Just Works
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name == 'workflow_dispatch' }}-${{ github.event_name == 'schedule' }}
+  cancel-in-progress: true
+
+jobs:
+  configuration-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          # Linux x86_64
+          - ubuntu-latest
+          # macOS arm64
+          - macos-m1-stable
+        python-version:
+          - 3.10
+          - 3.11
+          - 3.12
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/checkout@v4
+      - uses: Build wheel
+        run: |
+          python3  -m venv .setup-venv
+          source .setup-venv/bin/activate
+          pip install -r requirements-dev.txt torch
+          python3 setup.py bdist_wheel --dist-dir=/tmp/executorch_wheel
+      - name: Get wheel path
+        run: |
+          FILE_COUNT=$(ls /tmp/executorch_wheel/*.whl 2>/dev/null | wc -l)
+          if [[ "$FILE_COUNT" -eq 1 ]]; then
+            WHEEL_PATH=$(ls /tmp/executorch_wheel/*.whl)
+            echo "EXECUTORCH_WHEEL=$WHEEL_PATH" >> $GITHUB_ENV
+          else
+            echo "Error: Expected exactly one wheel file in the dist folder, found $FILE_COUNT."
+            exit 1
+          fi
